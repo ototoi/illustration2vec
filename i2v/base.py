@@ -1,12 +1,15 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
+import chainer
+import chainer.links as L
+import chainer.functions as F
 
 
 class Illustration2VecBase(object):
 
     __metaclass__ = ABCMeta
 
-    def __init__(self, net, tags=None, threshold=None):
+    def __init__(self, net, tags=None, threshold=None, device=-1):
         self.net = net
         if tags is not None:
             self.tags = np.array(tags)
@@ -18,6 +21,7 @@ class Illustration2VecBase(object):
             self.threshold = threshold
         else:
             self.threshold = None
+        self.device = device
 
     @abstractmethod
     def _extract(self, inputs, layername):
@@ -132,3 +136,6 @@ class Illustration2VecBase(object):
         binary_feature = np.zeros_like(feature, dtype=np.uint8)
         binary_feature[feature > 0.5] = 1
         return np.packbits(binary_feature, axis=1)
+
+    def to_gpu(self):
+        self.net.to_gpu()

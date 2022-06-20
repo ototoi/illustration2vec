@@ -8,6 +8,7 @@ import chainer
 from chainer import Variable
 from chainer.functions import average_pooling_2d, sigmoid
 from chainer.links.caffe import CaffeFunction
+from chainer import cuda
 
 
 class ChainerI2V(Illustration2VecBase):
@@ -47,26 +48,36 @@ class ChainerI2V(Illustration2VecBase):
         input_ = input_[:, :, :, ::-1]  # RGB to BGR
         input_ -= self.mean  # subtract mean
         input_ = input_.transpose((0, 3, 1, 2))  # (N, H, W, C) -> (N, C, H, W)
+        if self.device >= 0:
+            chainer.cuda.get_device_from_id(self.device).use()
+            input_ = cuda.to_gpu(input_)
         x = Variable(input_)
         with chainer.using_config('train', False), chainer.using_config('enable_backprop', False):
             y, = self.net(inputs={'data': x}, outputs=[layername])
         return y
+
+    def _to_cpu(self, y):
+        if self.device >= 0:
+            y = y.get()
+            cuda.get_device_from_id(self.device).synchronize()
+        return y
+
 
     def _extract(self, inputs, layername):
         if layername == 'prob':
             h = self._forward(inputs, layername='conv6_4')
             h = average_pooling_2d(h, ksize=7)
             y = sigmoid(h)
-            return y.data
+            return self._to_cpu(y.data)
         elif layername == 'encode1neuron':
             h = self._forward(inputs, layername='encode1')
             y = sigmoid(h)
-            return y.data
+            return self._to_cpu(y.data)
         else:
             y = self._forward(inputs, layername)
-            return y.data
+            return self._to_cpu(y.data)
 
-def make_i2v_with_chainer(param_path, tag_path=None, threshold_path=None):
+def make_i2v_with_chainer(param_path, tag_path=None, threshold_path=None, device=None):
     # ignore UserWarnings from chainer
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -81,5 +92,8 @@ def make_i2v_with_chainer(param_path, tag_path=None, threshold_path=None):
     if threshold_path is not None:
         fscore_threshold = np.load(threshold_path)['threshold']
         kwargs['threshold'] = fscore_threshold
+
+    if device is not None:
+        kwargs["device"] = device
 
     return ChainerI2V(net, **kwargs)
